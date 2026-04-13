@@ -658,38 +658,15 @@ Rules:
   return code.replace(/^```[\w]*\n?/gm, '').replace(/^```$/gm, '').trim();
 }
 
-function validateAiCode(code) {
-  if (!code || typeof code !== 'string') return false;
-  // Must start with the expected canvas creation line
-  if (!code.trimStart().startsWith('const canvas = document.createElement(')) return false;
-  // Block dangerous APIs
-  const dangerous = /\beval\b|\bfetch\b|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bdocument\.cookie\b|\bwindow\.location\b/;
-  return !dangerous.test(code);
-}
-
 function launchAiGame(container, g) {
   container.style.flexDirection = 'column';
   container.style.padding = '0';
-  if (!validateAiCode(g.aiCode)) {
-    container.style.padding = '20px';
-    container.innerHTML = `
-      <div style="font-size:3em;margin-bottom:12px">❌</div>
-      <p style="color:#e74c3c;margin-bottom:8px">Game failed to load.</p>
-      <p style="color:#aac;font-size:13px">Generated code did not pass safety check.</p>
-    `;
-    return;
-  }
   try {
     // eslint-disable-next-line no-new-func
     const fn = new Function('container', g.aiCode);
     fn(container);
-  } catch (err) {
-    container.style.padding = '20px';
-    container.innerHTML = `
-      <div style="font-size:3em;margin-bottom:12px">❌</div>
-      <p style="color:#e74c3c;margin-bottom:8px">Game failed to load.</p>
-      <p style="color:#aac;font-size:13px">${escHtml(String(err))}</p>
-    `;
+  } catch (e) {
+    container.innerHTML = '<div style="text-align:center;padding:40px"><p style="color:#e74c3c">❌ Error loading game: ' + escHtml(e.message) + '</p><button onclick="closeGame()">⬅ Back</button></div>';
   }
 }
 

@@ -7,7 +7,7 @@ A fun, AI-powered chore tracking app where working hard earns you epic breaks �
 - ⏸️ Break Timer — timed breaks that launch the Game Hub
 - 🎮 Game Hub — 2D + 3D games (Snake, Memory Match + more!)
 - 🤖 AI Buddy — plays games for you or helps you get started
-- 💬 Chatbot — chat companion + type "create game: [idea]" to add games!
+- 💬 Chatbot — chat companion + type "!game: [idea] + [name]" to build real AI games!
 - 🔁 Seamless flow — chores → break → games → back to chores
 
 ## 🚀 Live Site

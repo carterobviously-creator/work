@@ -601,7 +601,7 @@ const botResponses = {
   ],
   default: [
     "Hmm, I'm not sure about that! Try asking about chores, games, breaks, or the AI Buddy.",
-    "Great question! Try 'create game: [name]' to add your own game to the hub!",
+    "Great question! Try '!game: [idea] + [name]' to build your own AI game in the hub!",
     "I'm still learning, but I'm here to help! Ask me about anything in Chore Quest Hub.",
   ],
 };
@@ -700,10 +700,13 @@ function sendChat() {
   input.value = '';
   addChatMessage(text, 'user');
 
-  // Special: create game command
-  const m = text.match(/^create\s+game\s*:\s*(.+)/i);
+  // Special: !game: command
+  const m = text.match(/^!game:\s*(.+)/i);
   if (m) {
-    const userIdea = m[1].trim();
+    const rest = m[1].trim();
+    const plusIdx = rest.indexOf(' + ');
+    const userIdea = plusIdx !== -1 ? rest.slice(0, plusIdx).trim() : rest;
+    const gameName = plusIdx !== -1 ? rest.slice(plusIdx + 3).trim() : rest;
     const used = getDailyGamesUsed();
     const remaining = DAILY_GAME_LIMIT - used;
 
@@ -714,14 +717,15 @@ function sendChat() {
 
     addDailyGameUsed();
     const gamesAfter = remaining - 1;
-    addChatMessage(`🎮 Game creation started! This takes ${GAME_GENERATION_MINUTES} minutes. (${gamesAfter} game${gamesAfter !== 1 ? 's' : ''} remaining today)`, 'bot');
+    addChatMessage(`🎮 Building "${gameName}"! This takes ${GAME_GENERATION_MINUTES} minutes. (${gamesAfter} game${gamesAfter !== 1 ? 's' : ''} remaining today)`, 'bot');
 
     const icons = ['🎲','🃏','🏆','🌌','⚡','🔮','🎯','🛸','🌀'];
     const gameId = 'community_' + Date.now();
     const newGame = {
       id: gameId,
       icon: icons[Math.floor(Math.random() * icons.length)],
-      title: userIdea,
+      title: gameName,
+      description: userIdea,
       diff: 'AI',
       playable: false,
       aiCode: null,
@@ -743,7 +747,7 @@ function sendChat() {
     function updateCountdown() {
       const m2 = Math.floor(secondsLeft / 60).toString().padStart(2, '0');
       const s2 = (secondsLeft % 60).toString().padStart(2, '0');
-      countdownDiv.textContent = `⏳ Generating "${userIdea}"... ${m2}:${s2} remaining`;
+      countdownDiv.textContent = `⏳ Building "${gameName}"... ${m2}:${s2} remaining`;
     }
     updateCountdown();
 
@@ -775,7 +779,7 @@ function sendChat() {
           renderGameGrid();
         }
         countdownDiv.textContent = `✅ Done!`;
-        addChatMessage(`🎉 Your game "${userIdea}" is ready in the 🎮 Game Hub!`, 'bot');
+        addChatMessage(`🎉 Your game "${gameName}" is ready in the 🎮 Game Hub!`, 'bot');
       } else {
         if (idx !== -1) {
           communityGames.splice(idx, 1);
@@ -783,7 +787,7 @@ function sendChat() {
           renderGameGrid();
         }
         countdownDiv.textContent = `❌ Generation failed.`;
-        addChatMessage(`❌ Sorry, couldn't generate the game "${userIdea}". Try again!`, 'bot');
+        addChatMessage(`❌ Sorry, couldn't generate the game "${gameName}". Try again!`, 'bot');
       }
     }
 
@@ -835,5 +839,5 @@ document.addEventListener('DOMContentLoaded', () => {
   renderChores();
   renderGameGrid();
   renderAiLog();
-  addChatMessage("👋 Hey! I'm your Chore Quest Buddy. Ask me about chores, games, or breaks! Try: create game: [your idea] 🚀", 'bot');
+  addChatMessage("👋 Hey! I'm your AI Buddy. Type !game: [idea] + [name] to have AI build you a real game — totally free, no setup needed!", 'bot');
 });

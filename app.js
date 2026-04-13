@@ -191,10 +191,11 @@ function openGame(g) {
   const container = document.getElementById('active-game');
   container.innerHTML = '';
 
-  if (g.id === 'snake')    { launchSnake(container); }
+  if (g.id === 'snake')         { launchSnake(container); }
   else if (g.id === 'memory')   { launchMemory(container); }
   else if (g.id === 'breakout') { launchBreakout(container); }
-  else { launchComingSoon(container, g); }
+  else if (g.aiCode)            { launchAiGame(container, g); }
+  else                          { launchComingSoon(container, g); }
 }
 
 function closeGame() {
@@ -617,6 +618,81 @@ function getBotReply(text) {
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
+// ── Daily Game Limit ─────────────────────────────────────────
+const DAILY_GAME_LIMIT = 10;
+const GAME_GENERATION_MINUTES = 5;
+
+function getDailyGamesUsed() {
+  const data = JSON.parse(localStorage.getItem('dailyGames') || '{"date":"","count":0}');
+  const today = new Date().toLocaleDateString();
+  if (data.date !== today) return 0;
+  return data.count;
+}
+
+function addDailyGameUsed() {
+  const today = new Date().toLocaleDateString();
+  const used = getDailyGamesUsed();
+  localStorage.setItem('dailyGames', JSON.stringify({ date: today, count: used + 1 }));
+}
+
+// ── AI Game Generation via Pollinations AI ───────────────────
+async function generateGameWithAI(userIdea) {
+  const prompt = `You are a game developer. Generate a complete, self-contained JavaScript function body that creates a fun playable HTML5 canvas game inside a DOM element called \`container\`.
+
+Game idea: ${userIdea}
+
+Rules:
+- First line must be: const canvas = document.createElement('canvas');
+- Set canvas.width = 400 and canvas.height = 400
+- Append canvas to container
+- The game must be fully playable with keyboard or mouse
+- Include score, win/lose condition
+- Dark background (#0d1b2a), bright colored elements
+- Under 150 lines
+- Return ONLY raw JavaScript, no markdown, no code fences, no explanations`;
+
+  const response = await fetch('https://text.pollinations.ai/' + encodeURIComponent(prompt));
+  if (!response.ok) throw new Error(`AI service returned status ${response.status}`);
+  const code = await response.text();
+  // Strip any accidental markdown code fences just in case
+  return code.replace(/^```[\w]*\n?/gm, '').replace(/^```$/gm, '').trim();
+}
+
+function validateAiCode(code) {
+  if (!code || typeof code !== 'string') return false;
+  // Must start with the expected canvas creation line
+  if (!code.trimStart().startsWith('const canvas = document.createElement(')) return false;
+  // Block dangerous APIs
+  const dangerous = /\beval\b|\bfetch\b|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bdocument\.cookie\b|\bwindow\.location\b/;
+  return !dangerous.test(code);
+}
+
+function launchAiGame(container, g) {
+  container.style.flexDirection = 'column';
+  container.style.padding = '0';
+  if (!validateAiCode(g.aiCode)) {
+    container.style.padding = '20px';
+    container.innerHTML = `
+      <div style="font-size:3em;margin-bottom:12px">❌</div>
+      <p style="color:#e74c3c;margin-bottom:8px">Game failed to load.</p>
+      <p style="color:#aac;font-size:13px">Generated code did not pass safety check.</p>
+    `;
+    return;
+  }
+  try {
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('container', g.aiCode);
+    fn(container);
+  } catch (err) {
+    container.style.padding = '20px';
+    container.innerHTML = `
+      <div style="font-size:3em;margin-bottom:12px">❌</div>
+      <p style="color:#e74c3c;margin-bottom:8px">Game failed to load.</p>
+      <p style="color:#aac;font-size:13px">${escHtml(String(err))}</p>
+    `;
+  }
+}
+
 function sendChat() {
   const input = document.getElementById('chat-input');
   const text = input.value.trim();
@@ -627,19 +703,104 @@ function sendChat() {
   // Special: create game command
   const m = text.match(/^create\s+game\s*:\s*(.+)/i);
   if (m) {
-    const name = m[1].trim();
+    const userIdea = m[1].trim();
+    const used = getDailyGamesUsed();
+    const remaining = DAILY_GAME_LIMIT - used;
+
+    if (remaining <= 0) {
+      addChatMessage('🚫 You\'ve reached the daily limit of 10 AI games. Come back tomorrow!', 'bot');
+      return;
+    }
+
+    addDailyGameUsed();
+    const gamesAfter = remaining - 1;
+    addChatMessage(`🎮 Game creation started! This takes ${GAME_GENERATION_MINUTES} minutes. (${gamesAfter} game${gamesAfter !== 1 ? 's' : ''} remaining today)`, 'bot');
+
     const icons = ['🎲','🃏','🏆','🌌','⚡','🔮','🎯','🛸','🌀'];
+    const gameId = 'community_' + Date.now();
     const newGame = {
-      id: 'community_' + Date.now(),
+      id: gameId,
       icon: icons[Math.floor(Math.random() * icons.length)],
-      title: name,
-      diff: 'Community',
+      title: userIdea,
+      diff: 'AI',
       playable: false,
+      aiCode: null,
     };
     communityGames.push(newGame);
     saveCommunityGames();
     renderGameGrid();
-    setTimeout(() => addChatMessage(`🎉 "${name}" has been added to the Game Hub! Head to 🎮 Game Hub to find it!`, 'bot'), 500);
+
+    // Show live countdown in chat
+    const countdownDiv = document.createElement('div');
+    countdownDiv.className = 'chat-msg bot';
+    const box = document.getElementById('chat-messages');
+    box.appendChild(countdownDiv);
+    box.scrollTop = box.scrollHeight;
+
+    const TOTAL_SECONDS = GAME_GENERATION_MINUTES * 60;
+    let secondsLeft = TOTAL_SECONDS;
+
+    function updateCountdown() {
+      const m2 = Math.floor(secondsLeft / 60).toString().padStart(2, '0');
+      const s2 = (secondsLeft % 60).toString().padStart(2, '0');
+      countdownDiv.textContent = `⏳ Generating "${userIdea}"... ${m2}:${s2} remaining`;
+    }
+    updateCountdown();
+
+    const countdownTimer = setInterval(() => {
+      secondsLeft--;
+      if (secondsLeft <= 0) {
+        clearInterval(countdownTimer);
+        secondsLeft = 0;
+      }
+      updateCountdown();
+    }, 1000);
+
+    // Start AI generation immediately
+    let aiCodeResult = null;
+    let timerDone = false;
+    let aiDone = false;
+    let revealed = false;
+
+    function revealGame() {
+      if (revealed) return;
+      revealed = true;
+      clearInterval(countdownTimer);
+      const idx = communityGames.findIndex(g => g.id === gameId);
+      if (aiCodeResult) {
+        if (idx !== -1) {
+          communityGames[idx].aiCode = aiCodeResult;
+          communityGames[idx].playable = true;
+          saveCommunityGames();
+          renderGameGrid();
+        }
+        countdownDiv.textContent = `✅ Done!`;
+        addChatMessage(`🎉 Your game "${userIdea}" is ready in the 🎮 Game Hub!`, 'bot');
+      } else {
+        if (idx !== -1) {
+          communityGames.splice(idx, 1);
+          saveCommunityGames();
+          renderGameGrid();
+        }
+        countdownDiv.textContent = `❌ Generation failed.`;
+        addChatMessage(`❌ Sorry, couldn't generate the game "${userIdea}". Try again!`, 'bot');
+      }
+    }
+
+    generateGameWithAI(userIdea).then(code => {
+      aiCodeResult = code;
+      aiDone = true;
+      if (timerDone) revealGame();
+    }).catch(() => {
+      aiDone = true;
+      if (timerDone) revealGame();
+    });
+
+    setTimeout(() => {
+      timerDone = true;
+      if (aiDone) revealGame();
+    }, TOTAL_SECONDS * 1000);
+
     return;
   }
 

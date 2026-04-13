@@ -620,16 +620,17 @@ function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
 // ── Daily Game Limit ─────────────────────────────────────────
 const DAILY_GAME_LIMIT = 10;
+const GAME_GENERATION_MINUTES = 5;
 
 function getDailyGamesUsed() {
   const data = JSON.parse(localStorage.getItem('dailyGames') || '{"date":"","count":0}');
-  const today = new Date().toDateString();
+  const today = new Date().toLocaleDateString();
   if (data.date !== today) return 0;
   return data.count;
 }
 
 function addDailyGameUsed() {
-  const today = new Date().toDateString();
+  const today = new Date().toLocaleDateString();
   const used = getDailyGamesUsed();
   localStorage.setItem('dailyGames', JSON.stringify({ date: today, count: used + 1 }));
 }
@@ -651,14 +652,33 @@ Rules:
 - Return ONLY raw JavaScript, no markdown, no code fences, no explanations`;
 
   const response = await fetch('https://text.pollinations.ai/' + encodeURIComponent(prompt));
+  if (!response.ok) throw new Error(`AI service returned status ${response.status}`);
   const code = await response.text();
   // Strip any accidental markdown code fences just in case
   return code.replace(/^```[\w]*\n?/gm, '').replace(/^```$/gm, '').trim();
 }
 
+function validateAiCode(code) {
+  if (!code || typeof code !== 'string') return false;
+  // Must start with the expected canvas creation line
+  if (!code.trimStart().startsWith('const canvas = document.createElement(')) return false;
+  // Block dangerous APIs
+  const dangerous = /\beval\b|\bfetch\b|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bdocument\.cookie\b|\bwindow\.location\b/;
+  return !dangerous.test(code);
+}
+
 function launchAiGame(container, g) {
   container.style.flexDirection = 'column';
   container.style.padding = '0';
+  if (!validateAiCode(g.aiCode)) {
+    container.style.padding = '20px';
+    container.innerHTML = `
+      <div style="font-size:3em;margin-bottom:12px">❌</div>
+      <p style="color:#e74c3c;margin-bottom:8px">Game failed to load.</p>
+      <p style="color:#aac;font-size:13px">Generated code did not pass safety check.</p>
+    `;
+    return;
+  }
   try {
     // eslint-disable-next-line no-new-func
     const fn = new Function('container', g.aiCode);
@@ -694,7 +714,7 @@ function sendChat() {
 
     addDailyGameUsed();
     const gamesAfter = remaining - 1;
-    addChatMessage(`🎮 Game creation started! This takes 5 minutes. (${gamesAfter} game${gamesAfter !== 1 ? 's' : ''} remaining today)`, 'bot');
+    addChatMessage(`🎮 Game creation started! This takes ${GAME_GENERATION_MINUTES} minutes. (${gamesAfter} game${gamesAfter !== 1 ? 's' : ''} remaining today)`, 'bot');
 
     const icons = ['🎲','🃏','🏆','🌌','⚡','🔮','🎯','🛸','🌀'];
     const gameId = 'community_' + Date.now();
@@ -717,7 +737,7 @@ function sendChat() {
     box.appendChild(countdownDiv);
     box.scrollTop = box.scrollHeight;
 
-    const TOTAL_SECONDS = 300;
+    const TOTAL_SECONDS = GAME_GENERATION_MINUTES * 60;
     let secondsLeft = TOTAL_SECONDS;
 
     function updateCountdown() {
@@ -740,8 +760,11 @@ function sendChat() {
     let aiCodeResult = null;
     let timerDone = false;
     let aiDone = false;
+    let revealed = false;
 
     function revealGame() {
+      if (revealed) return;
+      revealed = true;
       clearInterval(countdownTimer);
       const idx = communityGames.findIndex(g => g.id === gameId);
       if (aiCodeResult) {

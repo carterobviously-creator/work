@@ -37,14 +37,14 @@
     <div id="break" class="tab">
       <h2>⏸️ Break Timer</h2>
       <div class="card center">
-        <p>Choose your break length:</p>
+        <p id="break-pick-label">Choose your break length:</p>
         <select id="break-length">
           <option value="5">5 minutes</option>
           <option value="10" selected>10 minutes</option>
           <option value="15">15 minutes</option>
           <option value="30">30 minutes</option>
         </select><br/>
-        <button onclick="startBreak()">🚀 Start Break!</button>
+        <button id="break-start-btn" onclick="startBreak()">🚀 Start Break!</button>
         <div id="break-timer-display" style="display:none;margin-top:20px">
           <div class="big-timer" id="timer-text">10:00</div>
           <div class="progress-bar"><div id="progress-fill"></div></div>

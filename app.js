@@ -13,6 +13,212 @@ let breakInterval = null;
 let breakSecondsLeft = 0;
 let breakTotalSeconds = 0;
 
+// ── Settings ────────────────────────────────────────────────
+function openSettings() {
+  const panel = document.getElementById('settings-panel');
+  const overlay = document.getElementById('settings-overlay');
+  const keyInput = document.getElementById('api-key-input');
+  keyInput.value = localStorage.getItem('openaiApiKey') || '';
+  document.getElementById('api-key-status').textContent = '';
+  panel.style.display = 'block';
+  overlay.style.display = 'block';
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').style.display = 'none';
+  document.getElementById('settings-overlay').style.display = 'none';
+}
+
+function saveApiKey() {
+  const key = document.getElementById('api-key-input').value.trim();
+  if (key) {
+    localStorage.setItem('openaiApiKey', key);
+    document.getElementById('api-key-status').textContent = '✅ API key saved!';
+  } else {
+    localStorage.removeItem('openaiApiKey');
+    document.getElementById('api-key-status').textContent = '🗑️ API key removed.';
+  }
+}
+
+// ── Daily Game Creation Limit ───────────────────────────────
+const DAILY_GAME_LIMIT = 10;
+
+function getDailyCount() {
+  const today = new Date().toISOString().slice(0, 10);
+  const saved = JSON.parse(localStorage.getItem('gameCreation') || '{}');
+  if (saved.gameCreationDate !== today) return 0;
+  return saved.gameCreationCount || 0;
+}
+
+function incrementDailyCount() {
+  const today = new Date().toISOString().slice(0, 10);
+  const count = getDailyCount() + 1;
+  localStorage.setItem('gameCreation', JSON.stringify({
+    gameCreationDate: today,
+    gameCreationCount: count,
+  }));
+}
+
+// ── OpenAI API Call ─────────────────────────────────────────
+async function callOpenAI(gameIdea) {
+  const apiKey = localStorage.getItem('openaiApiKey');
+  if (!apiKey) throw new Error('No API key');
+
+  const prompt = `You are a game developer. Generate a complete, self-contained JavaScript function called \`launchGame(container)\` that creates a fun, playable HTML5 canvas game inside the provided DOM element \`container\`.
+
+Game idea: ${gameIdea}
+
+Requirements:
+- Create a canvas element, append it to container
+- The game must be fully playable with keyboard or mouse controls
+- Include score display, win/lose conditions
+- Use bright colors on a dark background
+- Keep it under 200 lines of JavaScript
+- Return ONLY the raw JavaScript function, no markdown, no explanation, no code fences`;
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody.error?.message || '';
+    if (res.status === 401) throw new Error('Invalid API key. Please check your key in ⚙️ Settings.');
+    if (res.status === 429) throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+    if (res.status === 400) throw new Error(`Bad request: ${msg}`);
+    throw new Error(msg || `OpenAI error ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.choices[0].message.content.trim();
+}
+
+// ── Game Generation with Countdown ─────────────────────────
+const GENERATION_SECONDS = 300; // 5 minutes
+// Each polling attempt is 5 s; 60 attempts = 5 min max wait after countdown
+const MAX_POLL_ATTEMPTS = 60;
+
+function startGameGeneration(gameIdea) {
+  const icons = ['🎲','🃏','🏆','🌌','⚡','🔮','🎯','🛸','🌀'];
+  const gameId = 'llm_' + Date.now();
+  const icon = icons[Math.floor(Math.random() * icons.length)];
+
+  // Placeholder entry — not yet playable
+  const pendingGame = {
+    id: gameId,
+    icon,
+    title: gameIdea,
+    diff: 'AI-Generated',
+    playable: false,
+    generating: true,
+  };
+  communityGames.push(pendingGame);
+  saveCommunityGames();
+  renderGameGrid();
+
+  // Start API call immediately in background
+  let generatedCode = null;
+  let apiError = null;
+  callOpenAI(gameIdea)
+    .then(code => { generatedCode = code; })
+    .catch(err => { apiError = err.message || String(err); });
+
+  // Add countdown message to chat
+  const box = document.getElementById('chat-messages');
+  const countdownDiv = document.createElement('div');
+  countdownDiv.className = 'chat-msg countdown';
+  box.appendChild(countdownDiv);
+  box.scrollTop = box.scrollHeight;
+
+  let secondsLeft = GENERATION_SECONDS;
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  }
+
+  countdownDiv.textContent = `⏳ Generating "${gameIdea}"... ${formatTime(secondsLeft)} remaining`;
+
+  const timer = setInterval(() => {
+    secondsLeft--;
+    if (secondsLeft > 0) {
+      countdownDiv.textContent = `⏳ Generating "${gameIdea}"... ${formatTime(secondsLeft)} remaining`;
+      box.scrollTop = box.scrollHeight;
+    } else {
+      clearInterval(timer);
+      countdownDiv.textContent = `✅ Generation complete for "${gameIdea}"!`;
+
+      // Find the pending game and update it
+      const idx = communityGames.findIndex(g => g.id === gameId);
+      if (idx !== -1) {
+        if (apiError) {
+          communityGames[idx].generating = false;
+          communityGames[idx].playable = false;
+          communityGames[idx].error = apiError;
+          saveCommunityGames();
+          renderGameGrid();
+          addChatMessage(`⚠️ Game generation failed: ${apiError}`, 'bot');
+        } else if (generatedCode) {
+          communityGames[idx].generating = false;
+          communityGames[idx].playable = true;
+          communityGames[idx].launchCode = generatedCode;
+          saveCommunityGames();
+          renderGameGrid();
+          addChatMessage(`🎉 Your game "${gameIdea}" is ready! Head to the 🎮 Game Hub to play it!`, 'bot');
+        } else {
+          // API still running — wait a bit more and retry reveal
+          addChatMessage(`⏳ Still finalizing "${gameIdea}"… please wait a moment then try the Game Hub.`, 'bot');
+          waitForApiAndReveal(gameId, gameIdea, () => generatedCode, () => apiError);
+        }
+      }
+      box.scrollTop = box.scrollHeight;
+    }
+  }, 1000);
+}
+
+function waitForApiAndReveal(gameId, gameIdea, getCode, getError) {
+  let attempts = 0;
+  const poller = setInterval(() => {
+    attempts++;
+    const code = getCode();
+    const err = getError();
+    if (code || err || attempts > MAX_POLL_ATTEMPTS) {
+      clearInterval(poller);
+      const idx = communityGames.findIndex(g => g.id === gameId);
+      if (idx === -1) return;
+      if (err) {
+        communityGames[idx].generating = false;
+        communityGames[idx].error = err;
+        saveCommunityGames();
+        renderGameGrid();
+        addChatMessage(`⚠️ Game generation failed: ${err}`, 'bot');
+      } else if (code) {
+        communityGames[idx].generating = false;
+        communityGames[idx].playable = true;
+        communityGames[idx].launchCode = code;
+        saveCommunityGames();
+        renderGameGrid();
+        addChatMessage(`🎉 Your game "${gameIdea}" is ready! Head to the 🎮 Game Hub to play it!`, 'bot');
+      } else {
+        communityGames[idx].generating = false;
+        saveCommunityGames();
+        renderGameGrid();
+        addChatMessage(`⚠️ Game generation timed out for "${gameIdea}". Please try again.`, 'bot');
+      }
+    }
+  }, 5000);
+}
+
 // ── Default Games ───────────────────────────────────────────
 const defaultGames = [
   { id: 'snake',   icon: '🐍', title: 'Snake',         diff: 'Easy',   playable: true  },
@@ -173,11 +379,17 @@ function renderGameGrid() {
   const allGames = [...defaultGames, ...communityGames];
   allGames.forEach(g => {
     const card = document.createElement('div');
-    card.className = 'game-card';
+    card.className = 'game-card' + (g.generating ? ' generating' : '');
+    const statusHtml = g.generating
+      ? `<div class="game-status">⏳ Generating…</div>`
+      : g.error
+        ? `<div class="game-status" style="color:#e74c3c">⚠️ Failed</div>`
+        : '';
     card.innerHTML = `
       <div class="game-icon">${g.icon}</div>
       <div class="game-title">${escHtml(g.title)}</div>
       <div class="game-diff">${escHtml(g.diff || 'Easy')}</div>
+      ${statusHtml}
     `;
     card.onclick = () => openGame(g);
     grid.appendChild(card);
@@ -185,16 +397,22 @@ function renderGameGrid() {
 }
 
 function openGame(g) {
+  if (g.generating) {
+    addChatMessage(`⏳ "${g.title}" is still being generated. Please wait for the countdown to finish!`, 'bot');
+    showTab('chatbot');
+    return;
+  }
   currentGame = g;
   document.getElementById('game-grid').style.display = 'none';
   document.getElementById('game-frame-wrap').style.display = 'block';
   const container = document.getElementById('active-game');
   container.innerHTML = '';
 
-  if (g.id === 'snake')    { launchSnake(container); }
+  if (g.id === 'snake')         { launchSnake(container); }
   else if (g.id === 'memory')   { launchMemory(container); }
   else if (g.id === 'breakout') { launchBreakout(container); }
-  else { launchComingSoon(container, g); }
+  else if (g.launchCode)        { launchLLMGame(container, g); }
+  else                          { launchComingSoon(container, g); }
 }
 
 function closeGame() {
@@ -510,6 +728,51 @@ function launchComingSoon(container, g) {
   `;
 }
 
+function launchLLMGame(container, g) {
+  container.style.flexDirection = 'column';
+  container.style.padding = '0';
+
+  // Run the LLM-generated code inside a sandboxed iframe so it cannot
+  // access or modify the parent page — "allow-scripts" only, no same-origin.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'width:100%;flex:1;min-height:420px;border:none;border-radius:14px;background:#0d1b2a;';
+  iframe.sandbox = 'allow-scripts';
+
+  const escapedCode = g.launchCode
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  iframe.srcdoc = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1b2a; color: #eee; font-family: sans-serif; overflow: hidden; }
+  #error { color: #e74c3c; padding: 20px; font-size: 14px; }
+</style>
+</head>
+<body>
+<script>
+(function() {
+  try {
+    ${g.launchCode}
+    launchGame(document.body);
+  } catch (e) {
+    var d = document.createElement('div');
+    d.id = 'error';
+    d.textContent = '\u26a0\ufe0f Game error: ' + e.message;
+    document.body.appendChild(d);
+  }
+})();
+<\/script>
+</body>
+</html>`;
+
+  container.appendChild(iframe);
+}
+
 // ── AI Buddy ────────────────────────────────────────────────
 function addAiLog(msg) {
   aiLog.unshift({ time: new Date().toLocaleTimeString(), msg });
@@ -627,19 +890,27 @@ function sendChat() {
   // Special: create game command
   const m = text.match(/^create\s+game\s*:\s*(.+)/i);
   if (m) {
-    const name = m[1].trim();
-    const icons = ['🎲','🃏','🏆','🌌','⚡','🔮','🎯','🛸','🌀'];
-    const newGame = {
-      id: 'community_' + Date.now(),
-      icon: icons[Math.floor(Math.random() * icons.length)],
-      title: name,
-      diff: 'Community',
-      playable: false,
-    };
-    communityGames.push(newGame);
-    saveCommunityGames();
-    renderGameGrid();
-    setTimeout(() => addChatMessage(`🎉 "${name}" has been added to the Game Hub! Head to 🎮 Game Hub to find it!`, 'bot'), 500);
+    const gameIdea = m[1].trim();
+
+    // Check API key
+    const apiKey = localStorage.getItem('openaiApiKey');
+    if (!apiKey) {
+      setTimeout(() => addChatMessage('🔑 Please set your OpenAI API key in ⚙️ Settings first!', 'bot'), 400);
+      return;
+    }
+
+    // Check daily limit
+    const count = getDailyCount();
+    if (count >= DAILY_GAME_LIMIT) {
+      setTimeout(() => addChatMessage("🚫 You've reached your 10 game limit for today! Come back tomorrow.", 'bot'), 400);
+      return;
+    }
+
+    incrementDailyCount();
+    setTimeout(() => {
+      addChatMessage(`🎮 Game creation started! ⏳ Generating "${gameIdea}"... Check back in 5 minutes!`, 'bot');
+      startGameGeneration(gameIdea);
+    }, 400);
     return;
   }
 

@@ -1,1 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chore Quest Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <nav id="nav">
+      <button class="tab-btn active" onclick="showTab('chores')">🧹 Chores</button>
+      <button class="tab-btn" onclick="showTab('break')">⏸️ Break</button>
+      <button class="tab-btn" onclick="showTab('gamehub')">🎮 Game Hub</button>
+      <button class="tab-btn" onclick="showTab('aibuddy')">🤖 AI Buddy</button>
+      <button class="tab-btn" onclick="showTab('chatbot')">💬 Chatbot</button>
+    </nav>
 
+    <div id="chores" class="tab active">
+      <h2>🧹 Chore Tracker</h2>
+      <div class="card">
+        <input id="chore-input" type="text" placeholder="Add a new chore..." onkeydown="if(event.key==='Enter')addChore()" />
+        <select id="chore-priority">
+          <option value="low">🟢 Low</option>
+          <option value="medium" selected>🟡 Medium</option>
+          <option value="high">🔴 High</option>
+        </select>
+        <button onclick="addChore()">➕ Add Chore</button>
+      </div>
+      <div id="break-earned" class="break-bar" style="display:none">
+        🎉 You earned a break! <button onclick="showTab('break')">Take Break Now ⏸️</button>
+      </div>
+      <ul id="chore-list"></ul>
+      <p id="break-points">⭐ Break Points: 0</p>
+    </div>
+
+    <div id="break" class="tab">
+      <h2>⏸️ Break Timer</h2>
+      <div class="card center">
+        <p>Choose your break length:</p>
+        <select id="break-length">
+          <option value="5">5 minutes</option>
+          <option value="10" selected>10 minutes</option>
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+        </select><br/>
+        <button onclick="startBreak()">🚀 Start Break!</button>
+        <div id="break-timer-display" style="display:none;margin-top:20px">
+          <div class="big-timer" id="timer-text">10:00</div>
+          <div class="progress-bar"><div id="progress-fill"></div></div>
+          <p style="color:#aac;margin-bottom:12px">AI Buddy will save your game when break ends! 🤖</p>
+          <button onclick="endBreak()" style="background:#e74c3c">⏹ End Break Early</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gamehub" class="tab">
+      <h2>🎮 Game Hub</h2>
+      <p class="subtitle">Play on your break! AI Buddy can help with hard games.</p>
+      <div id="game-grid"></div>
+      <div id="game-frame-wrap" style="display:none">
+        <button onclick="closeGame()">⬅ Back to Games</button>
+        <div id="active-game"></div>
+      </div>
+    </div>
+
+    <div id="aibuddy" class="tab">
+      <h2>🤖 AI Buddy</h2>
+      <div class="card center">
+        <div class="ai-avatar">🤖</div>
+        <p id="ai-status">Hi! I'm your AI Buddy. I can play games for you or help you get started on tough ones!</p>
+        <button onclick="aiBuddyPlay()">🎮 Play a Game For Me!</button>
+        <button onclick="aiBuddyHelp()">💡 Help Me Get Started</button>
+        <button onclick="aiBuddySave()">💾 Save My Game Progress</button>
+        <div id="ai-log"></div>
+      </div>
+    </div>
+
+    <div id="chatbot" class="tab">
+      <h2>💬 Chatbot</h2>
+      <div class="card">
+        <div id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Chat or type: create game: [your idea]" onkeydown="if(event.key==='Enter')sendChat()" />
+          <button onclick="sendChat()">Send 🚀</button>
+        </div>
+        <p class="hint">💡 Try: <b>"create game: Space Adventure"</b> to add a game to the hub!</p>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

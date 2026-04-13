@@ -635,27 +635,49 @@ function addDailyGameUsed() {
   localStorage.setItem('dailyGames', JSON.stringify({ date: today, count: used + 1 }));
 }
 
+// ── AI Game Code Cleaner ─────────────────────────────────────
+function cleanGameCode(code) {
+  // Remove markdown code fences if present
+  code = code.replace(/^```[\w]*\n?/gm, '').replace(/```$/gm, '').trim();
+
+  // If the code starts with a function declaration, extract just the body
+  const funcMatch = code.match(/^(?:async\s+)?function\s+\w+\s*\([^)]*\)\s*\{([\s\S]*)\}\s*$/);
+  if (funcMatch) {
+    return funcMatch[1].trim();
+  }
+
+  // If the code starts with an arrow function assignment, extract the body
+  const arrowMatch = code.match(/^(?:const|let|var)\s+\w+\s*=\s*(?:async\s*)?\([^)]*\)\s*=>\s*\{([\s\S]*)\}\s*;?\s*$/);
+  if (arrowMatch) {
+    return arrowMatch[1].trim();
+  }
+
+  return code;
+}
+
 // ── AI Game Generation via Pollinations AI ───────────────────
 async function generateGameWithAI(userIdea) {
-  const prompt = `You are a game developer. Generate a complete, self-contained JavaScript function body that creates a fun playable HTML5 canvas game inside a DOM element called \`container\`.
+  const prompt = `You are a game developer. Write JavaScript code that creates a playable HTML5 canvas game.
 
 Game idea: ${userIdea}
 
-Rules:
-- First line must be: const canvas = document.createElement('canvas');
+CRITICAL RULES - follow exactly:
+- Write ONLY the code that goes INSIDE a function body
+- Do NOT write "function launchGame" or any function declaration
+- Do NOT use markdown code fences (no backticks)
+- Start directly with: const canvas = document.createElement('canvas');
 - Set canvas.width = 400 and canvas.height = 400
-- Append canvas to container
-- The game must be fully playable with keyboard or mouse
-- Include score, win/lose condition
-- Dark background (#0d1b2a), bright colored elements
-- Under 150 lines
-- Return ONLY raw JavaScript, no markdown, no code fences, no explanations`;
+- Append canvas to a variable called "container" (already exists as a parameter)
+- Make it fully playable with keyboard or mouse controls
+- Include score display and win/lose condition
+- Use dark background (#0d1b2a) with bright colored elements
+- Keep under 150 lines
+- Output raw JavaScript code only, nothing else`;
 
   const response = await fetch('https://text.pollinations.ai/' + encodeURIComponent(prompt));
   if (!response.ok) throw new Error(`AI service returned status ${response.status}`);
   const code = await response.text();
-  // Strip any accidental markdown code fences just in case
-  return code.replace(/^```[\w]*\n?/gm, '').replace(/^```$/gm, '').trim();
+  return cleanGameCode(code);
 }
 
 function launchAiGame(container, g) {
@@ -663,7 +685,7 @@ function launchAiGame(container, g) {
   container.style.padding = '0';
   try {
     // eslint-disable-next-line no-new-func
-    const fn = new Function('container', g.aiCode);
+    const fn = new Function('container', cleanGameCode(g.aiCode));
     fn(container);
   } catch (e) {
     container.innerHTML = '<div style="text-align:center;padding:40px"><p style="color:#e74c3c">❌ Error loading game: ' + escHtml(e.message) + '</p><button onclick="closeGame()">⬅ Back</button></div>';
